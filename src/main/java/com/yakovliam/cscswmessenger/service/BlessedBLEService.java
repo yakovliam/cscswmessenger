@@ -6,18 +6,26 @@ import org.jetbrains.annotations.NotNull;
 public abstract class BlessedBLEService implements Service {
 
     /**
-     * When the target peripheral is connected
+     * When a peripheral is discovered
      *
      * @param peripheral peripheral
+     * @param scanResult scan result
      */
-    public abstract void onConnectedToTargetPeripheral(BluetoothPeripheral peripheral);
+    public abstract void onDiscoveredPeripheral(@NotNull BluetoothPeripheral peripheral, @NotNull ScanResult scanResult);
 
     /**
-     * When the target peripheral is disconnected
+     * When a peripheral is connected
      *
      * @param peripheral peripheral
      */
-    public abstract void onDisconnectedFromTargetPeripheral(BluetoothPeripheral peripheral);
+    public abstract void onConnectedToPeripheral(BluetoothPeripheral peripheral);
+
+    /**
+     * When a peripheral is disconnected
+     *
+     * @param peripheral peripheral
+     */
+    public abstract void onDisconnectedFromPeripheral(BluetoothPeripheral peripheral);
 
     /**
      * When new data is received
@@ -30,30 +38,41 @@ public abstract class BlessedBLEService implements Service {
     public abstract void onDataReceived(@NotNull BluetoothPeripheral peripheral, byte[] value, @NotNull BluetoothGattCharacteristic characteristic, @NotNull BluetoothCommandStatus status);
 
     /**
+     * Writes data to a target characteristic
+     *
+     * @param characteristic target characteristic
+     * @param data           data
+     */
+    public abstract void write(BluetoothGattCharacteristic characteristic, byte[] data);
+
+    /**
+     * When a service is discovered
+     *
+     * @param peripheral peripheral
+     * @param service    service
+     */
+    public abstract void onDiscoveredService(BluetoothPeripheral peripheral, BluetoothGattService service);
+
+    /**
+     * When a characteristic is discovered
+     *
+     * @param peripheral     peripheral
+     * @param service        service
+     * @param characteristic characteristic
+     */
+    public abstract void onDiscoveredCharacteristic(BluetoothPeripheral peripheral, BluetoothGattService service, BluetoothGattCharacteristic characteristic);
+
+    /**
      * Returns the BCM
      *
      * @return BCM
      */
-    public abstract BluetoothCentralManager getBluetoothCentralManager();
+    public abstract BluetoothCentralManager bluetoothCentralManager();
 
     /**
-     * Writes data to a predetermined target characteristic
+     * Returns the target characteristic
      *
-     * @param data data
+     * @return target characteristic
      */
-    public abstract void write(byte[] data);
-
-    /**
-     * When the target service is discovered
-     *
-     * @param service service
-     */
-    public abstract void onDiscoveredTargetService(BluetoothGattService service);
-
-    /**
-     * When the target characteristic is discovered
-     *
-     * @param bluetoothGattCharacteristic characteristic
-     */
-    public abstract void onDiscoveredTargetCharacteristic(BluetoothGattCharacteristic bluetoothGattCharacteristic);
+    public abstract BluetoothGattCharacteristic targetCharacteristic();
 }

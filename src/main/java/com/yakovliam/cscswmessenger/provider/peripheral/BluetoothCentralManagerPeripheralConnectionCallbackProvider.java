@@ -14,11 +14,10 @@ public class BluetoothCentralManagerPeripheralConnectionCallbackProvider impleme
     /**
      * Bluetooth central manager callback provider constructor
      *
-     * @param context           the context required for providing the provided object
      * @param blessedBLEService the blessed ble service
      */
-    public BluetoothCentralManagerPeripheralConnectionCallbackProvider(BLEPeripheralConnectionProvisionContext context, BlessedBLEService blessedBLEService) {
-        this.bcmPeripheralConnectionCallbackImplementation = new BCMPeripheralConnectionCallbackImplementation(context, blessedBLEService);
+    public BluetoothCentralManagerPeripheralConnectionCallbackProvider(BlessedBLEService blessedBLEService) {
+        this.bcmPeripheralConnectionCallbackImplementation = new BCMPeripheralConnectionCallbackImplementation(blessedBLEService);
     }
 
     @Override

@@ -39,7 +39,7 @@ public class CSCSWMessengerDataMachine implements DataMachine {
         CSCSWMessengerBootstrapper.LOGGER.info("Starting the data machine process!");
         // "send VI"
         // this doesn't actually do anything, it's just a test
-        this.bleService.write(new byte[]{0});
+        this.bleService.write(this.bleService.targetCharacteristic(), new byte[]{0});
     }
 
     /**

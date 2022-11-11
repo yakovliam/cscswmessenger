@@ -1,7 +1,6 @@
 package com.yakovliam.cscswmessenger.provider;
 
 import com.welie.blessed.BluetoothCentralManagerCallback;
-import com.yakovliam.cscswmessenger.provider.context.BLEPeripheralTargetProvisionContext;
 import com.yakovliam.cscswmessenger.service.BlessedBLEService;
 
 public class BluetoothCentralManagerCallbackProvider implements Provider<BluetoothCentralManagerCallback> {
@@ -14,11 +13,10 @@ public class BluetoothCentralManagerCallbackProvider implements Provider<Bluetoo
     /**
      * Bluetooth central manager callback provider constructor
      *
-     * @param context           the context required for providing the provided object
      * @param blessedBLEService the blessed ble service
      */
-    public BluetoothCentralManagerCallbackProvider(BLEPeripheralTargetProvisionContext context, BlessedBLEService blessedBLEService) {
-        this.bluetoothCentralManagerCallback = new BCMCallbackImplementation(context, blessedBLEService);
+    public BluetoothCentralManagerCallbackProvider(BlessedBLEService blessedBLEService) {
+        this.bluetoothCentralManagerCallback = new BCMCallbackImplementation(blessedBLEService);
     }
 
     @Override
