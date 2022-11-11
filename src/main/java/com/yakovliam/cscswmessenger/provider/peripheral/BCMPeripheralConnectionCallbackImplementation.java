@@ -25,6 +25,13 @@ public class BCMPeripheralConnectionCallbackImplementation extends BluetoothPeri
 
     @Override
     public void onServicesDiscovered(@NotNull BluetoothPeripheral peripheral, @NotNull List<BluetoothGattService> services) {
+        // construct a printable string of the services
+        StringBuilder serviceListString = new StringBuilder();
+        for (BluetoothGattService service : services) {
+            serviceListString.append("-> ").append(service.getUuid()).append("\n");
+        }
+
+        CSCSWMessengerBootstrapper.LOGGER.info("Services discovered for peripheral with name {}, {}", peripheral.getName(), serviceListString);
         // loop through the services and call the callback for each
         services.forEach(service -> {
             // call the callback for the service

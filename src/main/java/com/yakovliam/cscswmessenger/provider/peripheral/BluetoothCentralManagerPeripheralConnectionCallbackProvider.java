@@ -1,7 +1,6 @@
 package com.yakovliam.cscswmessenger.provider.peripheral;
 
 import com.yakovliam.cscswmessenger.provider.Provider;
-import com.yakovliam.cscswmessenger.provider.context.BLEPeripheralConnectionProvisionContext;
 import com.yakovliam.cscswmessenger.service.BlessedBLEService;
 
 public class BluetoothCentralManagerPeripheralConnectionCallbackProvider implements Provider<BCMPeripheralConnectionCallbackImplementation> {
