@@ -1,5 +1,6 @@
 package com.yakovliam.cscswmessenger.machine.utils;
 
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.stream.IntStream;
@@ -164,6 +165,16 @@ public class CSCSWUtils {
     }
 
     /**
+     * Converts a byte array to a hex string
+     *
+     * @param data data
+     * @return hex string
+     */
+    public static String convertByteArrayToHexString(byte[] data) {
+        return HexFormat.of().withUpperCase().formatHex(data);
+    }
+
+    /**
      * Converts a byte array of primitives to a byte array of objects
      *
      * @param bytes bytes
@@ -185,5 +196,25 @@ public class CSCSWUtils {
             bytes[i] = oBytes[i];
         }
         return bytes;
+    }
+
+    /**
+     * Returns the price of vending/pulsing (unknown) from a packet
+     *
+     * @param packet packet
+     * @return price
+     */
+    public static String getPriceFromPacket(byte[] packet) {
+        if (packet == null) {
+            return "0";
+        } else {
+            byte[] var1 = new byte[2];
+
+            for (int var2 = 0; var2 < 2; ++var2) {
+                var1[var2] = packet[var2 + 6];
+            }
+
+            return String.valueOf(ByteBuffer.wrap(var1).getShort());
+        }
     }
 }

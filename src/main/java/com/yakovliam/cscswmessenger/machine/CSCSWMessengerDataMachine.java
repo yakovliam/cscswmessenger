@@ -1,12 +1,13 @@
 package com.yakovliam.cscswmessenger.machine;
 
-import com.csc.cpmobile.utils.Utils;
 import com.welie.blessed.BluetoothGattCharacteristic;
 import com.yakovliam.cscswmessenger.CSCSWMessengerBootstrapper;
 import com.yakovliam.cscswmessenger.machine.service.CSCSWTokenBroker;
 import com.yakovliam.cscswmessenger.machine.store.CSCSWProcessDataStore;
 import com.yakovliam.cscswmessenger.machine.utils.CSCSWUtils;
 import com.yakovliam.cscswmessenger.service.BlessedBLEService;
+
+import java.nio.charset.Charset;
 
 import static com.yakovliam.cscswmessenger.machine.utils.CSCSWConstants.CSCSW_VENDOR_ID;
 
@@ -65,26 +66,34 @@ public class CSCSWMessengerDataMachine implements DataMachine {
      * @param data           data
      */
     public void onReceiveData(BluetoothGattCharacteristic characteristic, byte[] data) {
-        CSCSWMessengerBootstrapper.LOGGER.info("Received data from the remote machine!");
-
+        CSCSWMessengerBootstrapper.LOGGER.info("Received data inside data machine (hex): " + CSCSWUtils.convertByteArrayToHexString(data));
         // add the received data (as hex string) to the response buffer
         responseBuffer.append(CSCSWUtils.convertBytesToHexString(data));
 
         // construct a full byte array packet from the buffer
-        byte[] packet = Utils.hexStringToByteArray(this.responseBuffer.toString().replace(" ", ""));
+        byte[] packet = CSCSWUtils.convertHexStringToByteArray(this.responseBuffer.toString().replace(" ", ""));
 
         // check to see if the full packet is valid before processing
-        boolean isValidPacket = packet.length - 5 == Utils.getLengthFromToken(packet);
+        boolean isValidPacket = packet.length - 5 == CSCSWUtils.getCompletePacketLengthFromData(packet);
 
         if (!isValidPacket) {
             // since the packet is not valid, we can't process it
             // therefore, we return and wait for more data to be received
             // to construct a valid packet
+            CSCSWMessengerBootstrapper.LOGGER.info("Received invalid packet, waiting for more data...");
             return;
         }
 
         // clear the response buffer
         this.responseBuffer.setLength(0);
+
+        // print the packet data to the log
+        StringBuilder packetData = new StringBuilder();
+        packetData.append("\n----- PACKET DATA -----\n");
+        packetData.append("Hex: ").append(CSCSWUtils.convertBytesToHexString(packet)).append("\n");
+        packetData.append("ASCII: ").append(new String(packet, Charset.defaultCharset())).append("\n");
+        packetData.append("----- END PACKET DATA -----\n");
+        CSCSWMessengerBootstrapper.LOGGER.info("Received valid packet, data: {}", packetData);
 
         // process the packet
         switch (currentProcessStep) {
@@ -99,15 +108,21 @@ public class CSCSWMessengerDataMachine implements DataMachine {
      * @param data data
      */
     private void sendChunksToRemoteMachine(byte[][] data) {
-        boolean success = false;
 
-        // while not success, keep send chunks to remote machine until success
-        while (!success) {
-            // send chunks
-            for (byte[] chunk : data) {
+        // send chunks
+        for (byte[] chunk : data) {
+            boolean success = false;
+            while (!success) {
                 success = bleService.write(this.bleService.targetCharacteristic(), chunk);
+                CSCSWMessengerBootstrapper.LOGGER.info("Sent chunk to remote machine (ascii): " + new String(chunk, Charset.defaultCharset()));
+                try {
+                    Thread.sleep(100L);
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
             }
         }
+
     }
 
     /**
@@ -141,6 +156,7 @@ public class CSCSWMessengerDataMachine implements DataMachine {
      * @param data data
      */
     private void receiveVendorIdPacket(byte[] data) {
+        CSCSWMessengerBootstrapper.LOGGER.info("Received vendor id packet, processing...");
         // construct a packet to get ask the CSCSW machine for price data
         byte[] getPriceData = new byte[4];
 
@@ -170,5 +186,54 @@ public class CSCSWMessengerDataMachine implements DataMachine {
      * @param data data
      */
     private void receiveGetPricePacket(byte[] data) {
+        CSCSWMessengerBootstrapper.LOGGER.info("Received get price packet, processing...");
+
+        // a byte array with the status of the machine
+        byte[] statusArray = new byte[1]; // 'var28'
+
+        // copy the "vend price" data to the data store
+        System.arraycopy(data, 6, this.dataStore.vendPrice(), 0, 2);
+        System.arraycopy(data, 8, statusArray, 0, 1);
+
+        // and integer (1 or 0) representing whether a retry is needed to fetch the price
+        int retryPriceRequest = statusArray[0] & 2;
+
+        // set the pulse money
+        this.dataStore.setPulseMoney(CSCSWUtils.getPriceFromPacket(data));
+
+        // convert the status array to a binary string
+        String statusBinaryString = Integer.toBinaryString(Integer.parseInt(CSCSWUtils.convertByteArrayToHexString(statusArray), 16));
+        StringBuilder currentStatus = new StringBuilder();
+
+        // insert leading zeros to the binary string
+        for (int i = 0; i < 8 - statusBinaryString.length(); ++i) {
+            currentStatus.insert(0, "0");
+        }
+
+        currentStatus.append(statusBinaryString);
+
+        // set the machine status variables
+        this.dataStore.setStartButtonIsEnabled("1".equals(currentStatus.substring(5, 6)));
+        this.dataStore.setStartButtonIsPressed("1".equals(currentStatus.substring(4, 5)));
+        this.dataStore.setCanDoTopOff("1".equals(currentStatus.substring(3, 4)));
+        this.dataStore.setCanDoSuperCycle("1".equals(currentStatus.substring(2, 3)));
+
+        // not sure where this is used... going to leave it blank right now
+//        if (this.dataStore.canDoTopOff() || this.dataStore.canDoSuperCycle()) {
+//            System.arraycopy(data, 9, var5, 0, 2);
+//            System.arraycopy(data, 11, var6, 0, 1);
+//        }
+
+        // ask the data to start / extend
+        byte[] seData = new byte[this.dataStore.vendPrice().length + this.token.length];
+        System.arraycopy(this.dataStore.vendPrice(), 0, seData, 0, this.dataStore.vendPrice().length);
+        System.arraycopy(this.token, 0, seData, this.dataStore.vendPrice().length, this.token.length);
+
+        // set the current process step to the next, which is the start / extend one
+        this.currentProcessStep = CSCSWProcessStep.START_CYCLE_EXTEND;
+
+        // format the packet and split it into 20 byte chunks
+        byte[][] chunksToSend = CSCSWUtils.splitBytesIntoChunks(CSCSWUtils.formatPacket(seData, "SE"), 20);
+        this.sendChunksToRemoteMachine(chunksToSend);
     }
 }

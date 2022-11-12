@@ -15,15 +15,25 @@ import com.yakovliam.cscswmessenger.machine.EmptyDataMachine;
 import com.yakovliam.cscswmessenger.utils.PeripheralConstants;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.UUID;
+
 public class CSCSWMessengerBLEService extends BlessedBLEService {
 
-    private static final BlessedPeripheralNameFilter TARGET_PERIPHERAL_FILTER = new BlessedPeripheralNameFilter((name) -> name.endsWith(PeripheralConstants.TARGET_PERIPHERAL_ENDING_DIGITS));
+    private UUID targetServiceUUID;
 
-    public static final BlessedConnectionDataReceivedTargetCharacteristicFilter DATA_RECEIVED_TARGET_CHARACTERISTIC_FILTER = new BlessedConnectionDataReceivedTargetCharacteristicFilter((characteristic) -> characteristic.getUuid().equals(PeripheralConstants.TARGET_CHARACTERISTIC_UUID));
+    private UUID targetCharWriteUUID;
 
-    public static final BlessedServiceDiscoveredTargetServiceFilter SERVICE_DISCOVERED_TARGET_SERVICE_FILTER = new BlessedServiceDiscoveredTargetServiceFilter((service -> service.getUuid().equals(PeripheralConstants.TARGET_SERVICE_UUID)));
+    private UUID targetCharNotifyUUID;
 
-    public static final BlessedCharacteristicDiscoveredTargetCharacteristicFilter CHARACTERISTIC_DISCOVERED_TARGET_CHARACTERISTIC_FILTER = new BlessedCharacteristicDiscoveredTargetCharacteristicFilter((characteristic -> characteristic.getUuid().equals(PeripheralConstants.TARGET_CHARACTERISTIC_UUID)));
+    public static final BlessedPeripheralNameFilter TARGET_PERIPHERAL_FILTER = new BlessedPeripheralNameFilter((name) -> name.endsWith(PeripheralConstants.TARGET_PERIPHERAL_ENDING_DIGITS));
+
+    public static final BlessedPeripheralNameFilter TARGET_PERIPHERAL_TYPE_2_FILTER = new BlessedPeripheralNameFilter((name) -> name.startsWith(PeripheralConstants.TARGET_PERIPHERAL_TYPE_2_STARTING_DIGITS));
+
+    private BlessedConnectionDataReceivedTargetCharacteristicFilter connectionDataReceivedTargetCharacteristicFilter;
+
+    private BlessedServiceDiscoveredTargetServiceFilter serviceDiscoveredTargetServiceFilter;
+
+    private BlessedCharacteristicDiscoveredTargetCharacteristicFilter characteristicDiscoveredTargetCharacteristicFilter;
 
     /**
      * The data machine that receives data and sends data
@@ -87,6 +97,24 @@ public class CSCSWMessengerBLEService extends BlessedBLEService {
         // stop scanning
         this.stopScanningForPeripherals();
 
+        // determine the machine type based on the peripheral name
+        if (TARGET_PERIPHERAL_TYPE_2_FILTER.passes(peripheral)) {
+            CSCSWMessengerBootstrapper.LOGGER.info("Target peripheral is type 2, using type 2 machine");
+            this.targetCharWriteUUID = PeripheralConstants.TYPE_2_CHAR_WRITE_UUID;
+            this.targetCharNotifyUUID = PeripheralConstants.TYPE_2_CHAR_NOTIFY_UUID;
+            this.targetServiceUUID = PeripheralConstants.TYPE_2_SERVICE_UUID;
+        } else {
+            CSCSWMessengerBootstrapper.LOGGER.info("Target peripheral is type 1 (ME51), using type 1 machine");
+            this.targetCharWriteUUID = PeripheralConstants.ME51_CHAR_WRITE_UUID;
+            this.targetCharNotifyUUID = PeripheralConstants.ME51_CHAR_NOTIFY_UUID;
+            this.targetServiceUUID = PeripheralConstants.ME51_SERVICE_UUID;
+        }
+
+        // set the filters to use the target service and characteristic (+ notify) uuids
+        this.connectionDataReceivedTargetCharacteristicFilter = new BlessedConnectionDataReceivedTargetCharacteristicFilter((characteristic) -> characteristic.getUuid().equals(this.targetCharNotifyUUID));
+        this.serviceDiscoveredTargetServiceFilter = new BlessedServiceDiscoveredTargetServiceFilter((service -> service.getUuid().equals(this.targetServiceUUID)));
+        this.characteristicDiscoveredTargetCharacteristicFilter = new BlessedCharacteristicDiscoveredTargetCharacteristicFilter((characteristic -> characteristic.getUuid().equals(this.targetCharWriteUUID)));
+
         // initialize a new data machine
         this.dataMachine = new CSCSWMessengerDataMachine(this);
 
@@ -115,7 +143,7 @@ public class CSCSWMessengerBLEService extends BlessedBLEService {
         // create the predicate action data to test against the filter
         BlessedPeripheralConnectionDataReceivedPredicateActionData actionData = new BlessedPeripheralConnectionDataReceivedPredicateActionData(peripheral, characteristic);
         // filter the data to see if it's from the target characteristic
-        if (!DATA_RECEIVED_TARGET_CHARACTERISTIC_FILTER.passes(actionData)) {
+        if (!connectionDataReceivedTargetCharacteristicFilter.passes(actionData)) {
             CSCSWMessengerBootstrapper.LOGGER.warn("Data received from non-target characteristic");
             return;
         }
@@ -144,11 +172,11 @@ public class CSCSWMessengerBLEService extends BlessedBLEService {
     @Override
     public void onDiscoveredService(BluetoothPeripheral peripheral, BluetoothGattService service) {
         // filter to find the target service
-        if (!SERVICE_DISCOVERED_TARGET_SERVICE_FILTER.passes(service)) {
+        if (!serviceDiscoveredTargetServiceFilter.passes(service)) {
             return;
         }
 
-        CSCSWMessengerBootstrapper.LOGGER.info("Found target service of {}, discovering characteristics", PeripheralConstants.TARGET_SERVICE_UUID.toString());
+        CSCSWMessengerBootstrapper.LOGGER.info("Found target service of {}, discovering characteristics", this.targetServiceUUID.toString());
 
         // the target service has been discovered, so we can loop through the characteristics and find the target characteristic
         // loop through the characteristics and call the callback for each
@@ -161,16 +189,16 @@ public class CSCSWMessengerBLEService extends BlessedBLEService {
     public void onDiscoveredCharacteristic(BluetoothPeripheral peripheral, BluetoothGattService service, BluetoothGattCharacteristic characteristic) {
         CSCSWMessengerBootstrapper.LOGGER.info("Found characteristic of {}", characteristic.getUuid());
         // filter to find the target characteristic
-        if (!CHARACTERISTIC_DISCOVERED_TARGET_CHARACTERISTIC_FILTER.passes(characteristic)) {
+        if (!characteristicDiscoveredTargetCharacteristicFilter.passes(characteristic)) {
             return;
         }
 
-        CSCSWMessengerBootstrapper.LOGGER.info("Found target characteristic of {}", PeripheralConstants.TARGET_CHARACTERISTIC_UUID.toString());
+        CSCSWMessengerBootstrapper.LOGGER.info("Found target characteristic of {}", this.targetCharWriteUUID.toString());
 
         // the target characteristic has been discovered, so we can set it
         this.targetCharacteristic = characteristic;
         // enable notifications for the target characteristic
-        this.targetPeripheral.setNotify(this.targetCharacteristic, true);
+        this.targetPeripheral.setNotify(this.targetServiceUUID, this.targetCharNotifyUUID, true);
 
         // the target characteristic has been discovered, so we can start the data machine
         this.dataMachine.start();
