@@ -28,7 +28,7 @@ public class BCMPeripheralConnectionCallbackImplementation extends BluetoothPeri
         // construct a printable string of the services
         StringBuilder serviceListString = new StringBuilder();
         for (BluetoothGattService service : services) {
-            serviceListString.append("-> ").append(service.getUuid()).append("\n");
+            serviceListString.append("\n").append("-> ").append(service.getUuid());
         }
 
         CSCSWMessengerBootstrapper.LOGGER.info("Services discovered for peripheral with name {}, {}", peripheral.getName(), serviceListString);

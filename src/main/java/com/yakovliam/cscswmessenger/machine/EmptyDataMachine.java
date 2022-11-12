@@ -1,4 +1,4 @@
-package com.yakovliam.cscswmessenger.service.machine;
+package com.yakovliam.cscswmessenger.machine;
 
 import com.welie.blessed.BluetoothGattCharacteristic;
 

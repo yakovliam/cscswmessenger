@@ -43,7 +43,7 @@ public abstract class BlessedBLEService implements Service {
      * @param characteristic target characteristic
      * @param data           data
      */
-    public abstract void write(BluetoothGattCharacteristic characteristic, byte[] data);
+    public abstract boolean write(BluetoothGattCharacteristic characteristic, byte[] data);
 
     /**
      * When a service is discovered

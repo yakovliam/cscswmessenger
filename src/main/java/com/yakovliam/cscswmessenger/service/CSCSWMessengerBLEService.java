@@ -1,6 +1,7 @@
 package com.yakovliam.cscswmessenger.service;
 
 import com.welie.blessed.*;
+import com.yakovliam.cscswmessenger.CSCSWMessengerBootstrapper;
 import com.yakovliam.cscswmessenger.filter.filters.characteristic.BlessedCharacteristicDiscoveredTargetCharacteristicFilter;
 import com.yakovliam.cscswmessenger.filter.filters.data.BlessedConnectionDataReceivedTargetCharacteristicFilter;
 import com.yakovliam.cscswmessenger.filter.filters.data.BlessedPeripheralConnectionDataReceivedPredicateActionData;
@@ -8,9 +9,9 @@ import com.yakovliam.cscswmessenger.filter.filters.peripheral.BlessedPeripheralN
 import com.yakovliam.cscswmessenger.filter.filters.service.BlessedServiceDiscoveredTargetServiceFilter;
 import com.yakovliam.cscswmessenger.provider.BluetoothCentralManagerCallbackProvider;
 import com.yakovliam.cscswmessenger.provider.peripheral.BluetoothCentralManagerPeripheralConnectionCallbackProvider;
-import com.yakovliam.cscswmessenger.service.machine.CSCSWMessengerDataMachine;
-import com.yakovliam.cscswmessenger.service.machine.DataMachine;
-import com.yakovliam.cscswmessenger.service.machine.EmptyDataMachine;
+import com.yakovliam.cscswmessenger.machine.CSCSWMessengerDataMachine;
+import com.yakovliam.cscswmessenger.machine.DataMachine;
+import com.yakovliam.cscswmessenger.machine.EmptyDataMachine;
 import com.yakovliam.cscswmessenger.utils.PeripheralConstants;
 import org.jetbrains.annotations.NotNull;
 
@@ -81,6 +82,14 @@ public class CSCSWMessengerBLEService extends BlessedBLEService {
             return;
         }
 
+        CSCSWMessengerBootstrapper.LOGGER.info("Found target peripheral, name: {}. Attempting to connect.", peripheral.getName());
+
+        // stop scanning
+        this.stopScanningForPeripherals();
+
+        // initialize a new data machine
+        this.dataMachine = new CSCSWMessengerDataMachine(this);
+
         // the target peripheral has been discovered ...
         // connect to the target peripheral
         this.bluetoothCentralManager.connectPeripheral(peripheral, this.bluetoothCentralManagerPeripheralConnectionCallbackProvider.provide());
@@ -88,14 +97,8 @@ public class CSCSWMessengerBLEService extends BlessedBLEService {
 
     @Override
     public void onConnectedToPeripheral(BluetoothPeripheral peripheral) {
-        // stop scanning for peripherals, we found the target one
-        this.stopScanningForPeripherals();
         // set the target peripheral
         this.targetPeripheral = peripheral;
-        // initialize a new data machine
-        this.dataMachine = new CSCSWMessengerDataMachine(this);
-        // start the data machine
-        this.dataMachine.start();
     }
 
     @Override
@@ -105,6 +108,7 @@ public class CSCSWMessengerBLEService extends BlessedBLEService {
 
     @Override
     public void onDataReceived(@NotNull BluetoothPeripheral peripheral, byte[] value, @NotNull BluetoothGattCharacteristic characteristic, @NotNull BluetoothCommandStatus status) {
+        CSCSWMessengerBootstrapper.LOGGER.info("Testing received data characteristic against target characteristic");
         // yes, we're already filtering the characteristic before, but it's safe to do it again when we receive data
         // even though we should only be receiving data from the target characteristic
 
@@ -112,8 +116,11 @@ public class CSCSWMessengerBLEService extends BlessedBLEService {
         BlessedPeripheralConnectionDataReceivedPredicateActionData actionData = new BlessedPeripheralConnectionDataReceivedPredicateActionData(peripheral, characteristic);
         // filter the data to see if it's from the target characteristic
         if (!DATA_RECEIVED_TARGET_CHARACTERISTIC_FILTER.passes(actionData)) {
+            CSCSWMessengerBootstrapper.LOGGER.warn("Data received from non-target characteristic");
             return;
         }
+
+        CSCSWMessengerBootstrapper.LOGGER.info("Processing received data inside the data machine");
 
         // the data is from the target characteristic, so we can pass it to the data machine
         this.dataMachine.onReceiveData(characteristic, value);
@@ -130,8 +137,8 @@ public class CSCSWMessengerBLEService extends BlessedBLEService {
     }
 
     @Override
-    public void write(BluetoothGattCharacteristic characteristic, byte[] data) {
-        this.targetPeripheral.writeCharacteristic(this.targetCharacteristic, data, BluetoothGattCharacteristic.WriteType.WITH_RESPONSE);
+    public boolean write(BluetoothGattCharacteristic characteristic, byte[] data) {
+        return this.targetPeripheral.writeCharacteristic(this.targetCharacteristic, data, BluetoothGattCharacteristic.WriteType.WITH_RESPONSE);
     }
 
     @Override
@@ -140,6 +147,8 @@ public class CSCSWMessengerBLEService extends BlessedBLEService {
         if (!SERVICE_DISCOVERED_TARGET_SERVICE_FILTER.passes(service)) {
             return;
         }
+
+        CSCSWMessengerBootstrapper.LOGGER.info("Found target service of {}, discovering characteristics", PeripheralConstants.TARGET_SERVICE_UUID.toString());
 
         // the target service has been discovered, so we can loop through the characteristics and find the target characteristic
         // loop through the characteristics and call the callback for each
@@ -150,15 +159,20 @@ public class CSCSWMessengerBLEService extends BlessedBLEService {
 
     @Override
     public void onDiscoveredCharacteristic(BluetoothPeripheral peripheral, BluetoothGattService service, BluetoothGattCharacteristic characteristic) {
+        CSCSWMessengerBootstrapper.LOGGER.info("Found characteristic of {}", characteristic.getUuid());
         // filter to find the target characteristic
         if (!CHARACTERISTIC_DISCOVERED_TARGET_CHARACTERISTIC_FILTER.passes(characteristic)) {
             return;
         }
 
+        CSCSWMessengerBootstrapper.LOGGER.info("Found target characteristic of {}", PeripheralConstants.TARGET_CHARACTERISTIC_UUID.toString());
+
         // the target characteristic has been discovered, so we can set it
         this.targetCharacteristic = characteristic;
         // enable notifications for the target characteristic
-        // this is so we receive data from the target characteristic
         this.targetPeripheral.setNotify(this.targetCharacteristic, true);
+
+        // the target characteristic has been discovered, so we can start the data machine
+        this.dataMachine.start();
     }
 }
