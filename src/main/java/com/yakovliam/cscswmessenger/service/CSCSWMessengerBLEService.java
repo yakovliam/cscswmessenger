@@ -1,206 +1,295 @@
 package com.yakovliam.cscswmessenger.service;
 
-import com.welie.blessed.*;
+import com.welie.blessed.BluetoothCentralManager;
+import com.welie.blessed.BluetoothCommandStatus;
+import com.welie.blessed.BluetoothGattCharacteristic;
+import com.welie.blessed.BluetoothGattService;
+import com.welie.blessed.BluetoothPeripheral;
+import com.welie.blessed.ScanResult;
 import com.yakovliam.cscswmessenger.CSCSWMessengerBootstrapper;
 import com.yakovliam.cscswmessenger.filter.filters.characteristic.BlessedCharacteristicDiscoveredTargetCharacteristicFilter;
 import com.yakovliam.cscswmessenger.filter.filters.data.BlessedConnectionDataReceivedTargetCharacteristicFilter;
 import com.yakovliam.cscswmessenger.filter.filters.data.BlessedPeripheralConnectionDataReceivedPredicateActionData;
 import com.yakovliam.cscswmessenger.filter.filters.peripheral.BlessedPeripheralNameFilter;
 import com.yakovliam.cscswmessenger.filter.filters.service.BlessedServiceDiscoveredTargetServiceFilter;
-import com.yakovliam.cscswmessenger.provider.BluetoothCentralManagerCallbackProvider;
-import com.yakovliam.cscswmessenger.provider.peripheral.BluetoothCentralManagerPeripheralConnectionCallbackProvider;
 import com.yakovliam.cscswmessenger.machine.CSCSWMessengerDataMachine;
 import com.yakovliam.cscswmessenger.machine.DataMachine;
-import com.yakovliam.cscswmessenger.machine.EmptyDataMachine;
+import com.yakovliam.cscswmessenger.provider.BluetoothCentralManagerCallbackProvider;
+import com.yakovliam.cscswmessenger.provider.peripheral.BluetoothCentralManagerPeripheralConnectionCallbackProvider;
+import com.yakovliam.cscswmessenger.service.model.MappedPeripheralWrapper;
 import com.yakovliam.cscswmessenger.utils.PeripheralConstants;
-import org.jetbrains.annotations.NotNull;
-
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import org.jetbrains.annotations.NotNull;
 
 public class CSCSWMessengerBLEService extends BlessedBLEService {
 
-    private UUID targetServiceUUID;
+  public static final List<String> TARGET_PERIPHERAL_ENDING_DIGITS =
+      List.of("001", "002", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012",
+          "013", "014", "015", "016", "017", "018", "019", "020", "021", "022", "023", "024");
 
-    private UUID targetCharWriteUUID;
+  public static final BlessedPeripheralNameFilter TARGET_PERIPHERAL_FILTER =
+      new BlessedPeripheralNameFilter(
+          (name) -> TARGET_PERIPHERAL_ENDING_DIGITS.stream().anyMatch(name::endsWith));
 
-    private UUID targetCharNotifyUUID;
+  public static final BlessedPeripheralNameFilter TARGET_PERIPHERAL_TYPE_2_FILTER =
+      new BlessedPeripheralNameFilter(
+          (name) -> name.startsWith(PeripheralConstants.TARGET_PERIPHERAL_TYPE_2_STARTING_DIGITS));
 
-    public static final BlessedPeripheralNameFilter TARGET_PERIPHERAL_FILTER = new BlessedPeripheralNameFilter((name) -> name.endsWith(PeripheralConstants.TARGET_PERIPHERAL_ENDING_DIGITS));
+  /**
+   * The mapped peripheral wrappers
+   */
+  private final List<MappedPeripheralWrapper> mappedPeripheralWrappers = new ArrayList<>();
 
-    public static final BlessedPeripheralNameFilter TARGET_PERIPHERAL_TYPE_2_FILTER = new BlessedPeripheralNameFilter((name) -> name.startsWith(PeripheralConstants.TARGET_PERIPHERAL_TYPE_2_STARTING_DIGITS));
+  /**
+   * Blessed Bluetooth central manager
+   */
+  private final BluetoothCentralManager bluetoothCentralManager;
 
-    private BlessedConnectionDataReceivedTargetCharacteristicFilter connectionDataReceivedTargetCharacteristicFilter;
+  /**
+   * Bluetooth central manager peripheral connection callback provider
+   */
+  private final BluetoothCentralManagerPeripheralConnectionCallbackProvider
+      bluetoothCentralManagerPeripheralConnectionCallbackProvider;
 
-    private BlessedServiceDiscoveredTargetServiceFilter serviceDiscoveredTargetServiceFilter;
+  public CSCSWMessengerBLEService() {
+    // create bluetooth central manager callback provider
+    BluetoothCentralManagerCallbackProvider bluetoothCentralManagerCallbackProvider =
+        new BluetoothCentralManagerCallbackProvider(this);
+    this.bluetoothCentralManagerPeripheralConnectionCallbackProvider =
+        new BluetoothCentralManagerPeripheralConnectionCallbackProvider(this);
+    // initialize the bluetooth central manager with the callback provider
+    this.bluetoothCentralManager =
+        new BluetoothCentralManager(bluetoothCentralManagerCallbackProvider.provide());
+  }
 
-    private BlessedCharacteristicDiscoveredTargetCharacteristicFilter characteristicDiscoveredTargetCharacteristicFilter;
+  /**
+   * Starts scanning for peripherals
+   */
+  public void startScanningForPeripherals() {
+    this.bluetoothCentralManager.scanForPeripherals();
+  }
 
-    /**
-     * The data machine that receives data and sends data
-     * This machine is also responsible for keeping state
-     */
-    private DataMachine dataMachine;
+  /**
+   * Stops scanning for peripherals
+   */
+  public void stopScanningForPeripherals() {
+    this.bluetoothCentralManager.stopScan();
+  }
 
-    /**
-     * The target peripheral
-     */
-    private BluetoothPeripheral targetPeripheral;
-
-    /**
-     * Target characteristic
-     */
-    private BluetoothGattCharacteristic targetCharacteristic;
-
-    /**
-     * Blessed Bluetooth central manager
-     */
-    private final BluetoothCentralManager bluetoothCentralManager;
-
-    /**
-     * Bluetooth central manager peripheral connection callback provider
-     */
-    private final BluetoothCentralManagerPeripheralConnectionCallbackProvider bluetoothCentralManagerPeripheralConnectionCallbackProvider;
-
-    public CSCSWMessengerBLEService() {
-        this.dataMachine = new EmptyDataMachine();
-
-        // create bluetooth central manager callback provider
-        BluetoothCentralManagerCallbackProvider bluetoothCentralManagerCallbackProvider = new BluetoothCentralManagerCallbackProvider(this);
-        this.bluetoothCentralManagerPeripheralConnectionCallbackProvider = new BluetoothCentralManagerPeripheralConnectionCallbackProvider(this);
-        // initialize the bluetooth central manager with the callback provider
-        this.bluetoothCentralManager = new BluetoothCentralManager(bluetoothCentralManagerCallbackProvider.provide());
+  @Override
+  public void onDiscoveredPeripheral(@NotNull BluetoothPeripheral peripheral,
+                                     @NotNull ScanResult scanResult) {
+    // filter the peripheral to see if it's the target
+    if (!TARGET_PERIPHERAL_FILTER.passes(peripheral)) {
+      return;
     }
 
-    /**
-     * Starts scanning for peripherals
-     */
-    public void startScanningForPeripherals() {
-        this.bluetoothCentralManager.scanForPeripherals();
+    // if the peripheral is already connected, skip
+    if (this.mappedPeripheralWrappers.stream().anyMatch(
+        mappedPeripheralWrapper -> mappedPeripheralWrapper.getPeripheral().equals(peripheral))) {
+      return;
     }
 
-    /**
-     * Stops scanning for peripherals
-     */
-    public void stopScanningForPeripherals() {
-        this.bluetoothCentralManager.stopScan();
+    CSCSWMessengerBootstrapper.LOGGER.info(
+        "Found target peripheral, name: {}. Attempting to connect.", peripheral.getName());
+
+    UUID targetCharWriteUUID;
+    UUID targetCharNotifyUUID;
+    UUID targetServiceUUID;
+
+    // determine the machine type based on the peripheral name
+    if (TARGET_PERIPHERAL_TYPE_2_FILTER.passes(peripheral)) {
+      CSCSWMessengerBootstrapper.LOGGER.info("Target peripheral is type 2, using type 2 machine");
+      targetCharWriteUUID = PeripheralConstants.TYPE_2_CHAR_WRITE_UUID;
+      targetCharNotifyUUID = PeripheralConstants.TYPE_2_CHAR_NOTIFY_UUID;
+      targetServiceUUID = PeripheralConstants.TYPE_2_SERVICE_UUID;
+    } else {
+      CSCSWMessengerBootstrapper.LOGGER.info(
+          "Target peripheral is type 1 (ME51), using type 1 machine");
+      targetCharWriteUUID = PeripheralConstants.ME51_CHAR_WRITE_UUID;
+      targetCharNotifyUUID = PeripheralConstants.ME51_CHAR_NOTIFY_UUID;
+      targetServiceUUID = PeripheralConstants.ME51_SERVICE_UUID;
     }
 
-    @Override
-    public void onDiscoveredPeripheral(@NotNull BluetoothPeripheral peripheral, @NotNull ScanResult scanResult) {
-        // filter the peripheral to see if it's the target
-        if (!TARGET_PERIPHERAL_FILTER.passes(peripheral)) {
-            return;
-        }
+    // create a new mapped peripheral wrapper object
+    MappedPeripheralWrapper mappedPeripheral =
+        new MappedPeripheralWrapper(peripheral, targetServiceUUID, targetCharWriteUUID,
+            targetCharNotifyUUID);
 
-        CSCSWMessengerBootstrapper.LOGGER.info("Found target peripheral, name: {}. Attempting to connect.", peripheral.getName());
+    // set the new data machine
+    mappedPeripheral.setDataMachine(new CSCSWMessengerDataMachine(this, mappedPeripheral));
 
-        // stop scanning
-        this.stopScanningForPeripherals();
+    // set the filters to use the target service and characteristic (+ notify) uuids
+    BlessedConnectionDataReceivedTargetCharacteristicFilter
+        connectionDataReceivedTargetCharacteristicFilter =
+        new BlessedConnectionDataReceivedTargetCharacteristicFilter(
+            (characteristic) -> characteristic.getUuid().equals(targetCharNotifyUUID));
+    BlessedServiceDiscoveredTargetServiceFilter serviceDiscoveredTargetServiceFilter =
+        new BlessedServiceDiscoveredTargetServiceFilter(
+            (service -> service.getUuid().equals(targetServiceUUID)));
+    BlessedCharacteristicDiscoveredTargetCharacteristicFilter
+        characteristicDiscoveredTargetCharacteristicFilter =
+        new BlessedCharacteristicDiscoveredTargetCharacteristicFilter(
+            (characteristic -> characteristic.getUuid().equals(targetCharWriteUUID)));
 
-        // determine the machine type based on the peripheral name
-        if (TARGET_PERIPHERAL_TYPE_2_FILTER.passes(peripheral)) {
-            CSCSWMessengerBootstrapper.LOGGER.info("Target peripheral is type 2, using type 2 machine");
-            this.targetCharWriteUUID = PeripheralConstants.TYPE_2_CHAR_WRITE_UUID;
-            this.targetCharNotifyUUID = PeripheralConstants.TYPE_2_CHAR_NOTIFY_UUID;
-            this.targetServiceUUID = PeripheralConstants.TYPE_2_SERVICE_UUID;
-        } else {
-            CSCSWMessengerBootstrapper.LOGGER.info("Target peripheral is type 1 (ME51), using type 1 machine");
-            this.targetCharWriteUUID = PeripheralConstants.ME51_CHAR_WRITE_UUID;
-            this.targetCharNotifyUUID = PeripheralConstants.ME51_CHAR_NOTIFY_UUID;
-            this.targetServiceUUID = PeripheralConstants.ME51_SERVICE_UUID;
-        }
+    mappedPeripheral.setConnectionDataReceivedTargetCharacteristicFilter(
+        connectionDataReceivedTargetCharacteristicFilter);
+    mappedPeripheral.setServiceDiscoveredTargetServiceFilter(serviceDiscoveredTargetServiceFilter);
+    mappedPeripheral.setCharacteristicDiscoveredTargetCharacteristicFilter(
+        characteristicDiscoveredTargetCharacteristicFilter);
 
-        // set the filters to use the target service and characteristic (+ notify) uuids
-        this.connectionDataReceivedTargetCharacteristicFilter = new BlessedConnectionDataReceivedTargetCharacteristicFilter((characteristic) -> characteristic.getUuid().equals(this.targetCharNotifyUUID));
-        this.serviceDiscoveredTargetServiceFilter = new BlessedServiceDiscoveredTargetServiceFilter((service -> service.getUuid().equals(this.targetServiceUUID)));
-        this.characteristicDiscoveredTargetCharacteristicFilter = new BlessedCharacteristicDiscoveredTargetCharacteristicFilter((characteristic -> characteristic.getUuid().equals(this.targetCharWriteUUID)));
+    // add the mapped peripheral to the list
+    this.mappedPeripheralWrappers.add(mappedPeripheral);
 
-        // initialize a new data machine
-        this.dataMachine = new CSCSWMessengerDataMachine(this);
+    // the target peripheral has been discovered ...
+    // connect to the target peripheral
+    this.bluetoothCentralManager.connectPeripheral(peripheral,
+        this.bluetoothCentralManagerPeripheralConnectionCallbackProvider.provide());
+  }
 
-        // the target peripheral has been discovered ...
-        // connect to the target peripheral
-        this.bluetoothCentralManager.connectPeripheral(peripheral, this.bluetoothCentralManagerPeripheralConnectionCallbackProvider.provide());
+  @Override
+  public void onConnectedToPeripheral(BluetoothPeripheral peripheral) {
+    // no-op
+  }
+
+  @Override
+  public void onDisconnectedFromPeripheral(BluetoothPeripheral peripheral) {
+    // remove the mapped peripheral
+    this.mappedPeripheralWrappers.removeIf(
+        mappedPeripheralWrapper -> mappedPeripheralWrapper.getPeripheral().equals(peripheral));
+  }
+
+  @Override
+  public void onDataReceived(@NotNull BluetoothPeripheral peripheral, byte[] value,
+                             @NotNull BluetoothGattCharacteristic characteristic,
+                             @NotNull BluetoothCommandStatus status) {
+    CSCSWMessengerBootstrapper.LOGGER.info(
+        "Testing received data characteristic against target characteristic");
+    // yes, we're already filtering the characteristic before, but it's safe to do it again when we receive data
+    // even though we should only be receiving data from the target characteristic
+
+    // create the predicate action data to test against the filter
+    BlessedPeripheralConnectionDataReceivedPredicateActionData actionData =
+        new BlessedPeripheralConnectionDataReceivedPredicateActionData(peripheral, characteristic);
+
+    // get the mapped peripheral wrapper
+    MappedPeripheralWrapper mappedPeripheralWrapper = this.mappedPeripheralWrappers.stream()
+        .filter(mappedPeripheral -> mappedPeripheral.getPeripheral().equals(peripheral)).findFirst()
+        .orElseThrow(() -> new IllegalStateException(
+            "Received data from peripheral that is not mapped to a peripheral wrapper"));
+
+    BlessedConnectionDataReceivedTargetCharacteristicFilter filter =
+        mappedPeripheralWrapper.getConnectionDataReceivedTargetCharacteristicFilter().orElseThrow(
+            () -> new IllegalStateException(
+                "Received data from peripheral that is not mapped to a peripheral wrapper"));
+
+    // filter the data to see if it's from the target characteristic
+    if (!filter.passes(actionData)) {
+      CSCSWMessengerBootstrapper.LOGGER.warn("Data received from non-target characteristic");
+      return;
     }
 
-    @Override
-    public void onConnectedToPeripheral(BluetoothPeripheral peripheral) {
-        // set the target peripheral
-        this.targetPeripheral = peripheral;
+    CSCSWMessengerBootstrapper.LOGGER.info("Processing received data inside the data machine");
+
+    // get the data machine
+    DataMachine dataMachine = mappedPeripheralWrapper.getDataMachine().orElseThrow(
+        () -> new IllegalStateException(
+            "Received data from peripheral that is not mapped to a peripheral wrapper"));
+
+    // the data is from the target characteristic, so we can pass it to the data machine
+    dataMachine.onReceiveData(characteristic, value);
+  }
+
+  @Override
+  public BluetoothCentralManager bluetoothCentralManager() {
+    return this.bluetoothCentralManager;
+  }
+
+
+  @Override
+  public boolean write(MappedPeripheralWrapper mappedPeripheralWrapper, byte[] data) {
+    BluetoothGattCharacteristic characteristic =
+        mappedPeripheralWrapper.getTargetWriteCharacteristic()
+            .orElseThrow(() -> new IllegalStateException("Target characteristic is not set"));
+
+    return mappedPeripheralWrapper.getPeripheral().writeCharacteristic(characteristic, data,
+        BluetoothGattCharacteristic.WriteType.WITH_RESPONSE);
+  }
+
+  @Override
+  public void onDiscoveredService(BluetoothPeripheral peripheral, BluetoothGattService service) {
+    // get the mapped peripheral wrapper
+    MappedPeripheralWrapper mappedPeripheralWrapper = this.mappedPeripheralWrappers.stream()
+        .filter(mappedPeripheral -> mappedPeripheral.getPeripheral().equals(peripheral)).findFirst()
+        .orElseThrow(() -> new IllegalStateException(
+            "Received data from peripheral that is not mapped to a peripheral wrapper"));
+
+    // get the service filter
+    BlessedServiceDiscoveredTargetServiceFilter filter =
+        mappedPeripheralWrapper.getServiceDiscoveredTargetServiceFilter().orElseThrow(
+            () -> new IllegalStateException(
+                "Received data from peripheral that is not mapped to a peripheral wrapper"));
+
+    // filter to find the target service
+    if (!filter.passes(service)) {
+      return;
     }
 
-    @Override
-    public void onDisconnectedFromPeripheral(BluetoothPeripheral peripheral) {
-        this.targetPeripheral = null;
+    CSCSWMessengerBootstrapper.LOGGER.info(
+        "Found target service of {}, discovering characteristics",
+        mappedPeripheralWrapper.getTargetServiceUUID().toString());
+
+    // the target service has been discovered, so we can loop through the characteristics and find the target characteristic
+    // loop through the characteristics and call the callback for each
+    service.getCharacteristics().forEach(characteristic -> {
+      this.onDiscoveredCharacteristic(peripheral, service, characteristic);
+    });
+  }
+
+  @Override
+  public void onDiscoveredCharacteristic(BluetoothPeripheral peripheral,
+                                         BluetoothGattService service,
+                                         BluetoothGattCharacteristic characteristic) {
+    CSCSWMessengerBootstrapper.LOGGER.info("Found characteristic of {}", characteristic.getUuid());
+
+    // get the mapped peripheral wrapper
+    MappedPeripheralWrapper mappedPeripheralWrapper = this.mappedPeripheralWrappers.stream()
+        .filter(mappedPeripheral -> mappedPeripheral.getPeripheral().equals(peripheral)).findFirst()
+        .orElseThrow(() -> new IllegalStateException(
+            "Received data from peripheral that is not mapped to a peripheral wrapper"));
+
+    // get the characteristic filter
+    BlessedCharacteristicDiscoveredTargetCharacteristicFilter filter =
+        mappedPeripheralWrapper.getCharacteristicDiscoveredTargetCharacteristicFilter().orElseThrow(
+            () -> new IllegalStateException(
+                "Received data from peripheral that is not mapped to a peripheral wrapper"));
+
+    // filter to find the target characteristic
+    if (!filter.passes(characteristic)) {
+      return;
     }
 
-    @Override
-    public void onDataReceived(@NotNull BluetoothPeripheral peripheral, byte[] value, @NotNull BluetoothGattCharacteristic characteristic, @NotNull BluetoothCommandStatus status) {
-        CSCSWMessengerBootstrapper.LOGGER.info("Testing received data characteristic against target characteristic");
-        // yes, we're already filtering the characteristic before, but it's safe to do it again when we receive data
-        // even though we should only be receiving data from the target characteristic
+    CSCSWMessengerBootstrapper.LOGGER.info("Found target characteristic of {}",
+        mappedPeripheralWrapper.getTargetCharWriteUUID().toString());
 
-        // create the predicate action data to test against the filter
-        BlessedPeripheralConnectionDataReceivedPredicateActionData actionData = new BlessedPeripheralConnectionDataReceivedPredicateActionData(peripheral, characteristic);
-        // filter the data to see if it's from the target characteristic
-        if (!connectionDataReceivedTargetCharacteristicFilter.passes(actionData)) {
-            CSCSWMessengerBootstrapper.LOGGER.warn("Data received from non-target characteristic");
-            return;
-        }
+    // enable notifications for the target characteristic
+    mappedPeripheralWrapper.getPeripheral()
+        .setNotify(mappedPeripheralWrapper.getTargetServiceUUID(),
+            mappedPeripheralWrapper.getTargetCharNotifyUUID(), true);
 
-        CSCSWMessengerBootstrapper.LOGGER.info("Processing received data inside the data machine");
+    // set the target characteristic
+    mappedPeripheralWrapper.setTargetWriteCharacteristic(characteristic);
 
-        // the data is from the target characteristic, so we can pass it to the data machine
-        this.dataMachine.onReceiveData(characteristic, value);
-    }
+    // get the data machine
+    DataMachine dataMachine = mappedPeripheralWrapper.getDataMachine().orElseThrow(
+        () -> new IllegalStateException(
+            "Received data from peripheral that is not mapped to a peripheral wrapper"));
 
-    @Override
-    public BluetoothCentralManager bluetoothCentralManager() {
-        return this.bluetoothCentralManager;
-    }
+    CSCSWMessengerBootstrapper.LOGGER.info("\n\n\n\nStarting data machine\n\n\n\n");
 
-    @Override
-    public BluetoothGattCharacteristic targetCharacteristic() {
-        return this.targetCharacteristic;
-    }
-
-    @Override
-    public boolean write(BluetoothGattCharacteristic characteristic, byte[] data) {
-        return this.targetPeripheral.writeCharacteristic(this.targetCharacteristic, data, BluetoothGattCharacteristic.WriteType.WITH_RESPONSE);
-    }
-
-    @Override
-    public void onDiscoveredService(BluetoothPeripheral peripheral, BluetoothGattService service) {
-        // filter to find the target service
-        if (!serviceDiscoveredTargetServiceFilter.passes(service)) {
-            return;
-        }
-
-        CSCSWMessengerBootstrapper.LOGGER.info("Found target service of {}, discovering characteristics", this.targetServiceUUID.toString());
-
-        // the target service has been discovered, so we can loop through the characteristics and find the target characteristic
-        // loop through the characteristics and call the callback for each
-        service.getCharacteristics().forEach(characteristic -> {
-            this.onDiscoveredCharacteristic(peripheral, service, characteristic);
-        });
-    }
-
-    @Override
-    public void onDiscoveredCharacteristic(BluetoothPeripheral peripheral, BluetoothGattService service, BluetoothGattCharacteristic characteristic) {
-        CSCSWMessengerBootstrapper.LOGGER.info("Found characteristic of {}", characteristic.getUuid());
-        // filter to find the target characteristic
-        if (!characteristicDiscoveredTargetCharacteristicFilter.passes(characteristic)) {
-            return;
-        }
-
-        CSCSWMessengerBootstrapper.LOGGER.info("Found target characteristic of {}", this.targetCharWriteUUID.toString());
-
-        // the target characteristic has been discovered, so we can set it
-        this.targetCharacteristic = characteristic;
-        // enable notifications for the target characteristic
-        this.targetPeripheral.setNotify(this.targetServiceUUID, this.targetCharNotifyUUID, true);
-
-        // the target characteristic has been discovered, so we can start the data machine
-        this.dataMachine.start();
-    }
+    // the target characteristic has been discovered, so we can start the data machine
+    dataMachine.start();
+  }
 }
